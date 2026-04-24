@@ -14,6 +14,15 @@ EXCLUDE = ["needoh", "dumpling"]
 seen_ids = set()
 
 def send(name, link):
+    print("➡️ Sending:", name)
+
+    res = requests.post(
+        WEBHOOK_URL,
+        json={"content": f"🧸 {name}\n{link}"}
+    )
+
+    print("Discord status:", res.status_code)
+    print("Response:", res.text)
     try:
         res = requests.post(
             WEBHOOK_URL,
