@@ -1,5 +1,6 @@
 import requests
 import os
+from datetime import datetime
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
@@ -11,16 +12,32 @@ EXCLUDE = ["needoh", "dumpling"]
 seen = set()
 
 # =========================
-# DISCORD
+# DISCORD EMBED (PRO)
 # =========================
-def send(msg):
+def send_embed(title, url, image=None, store="Store"):
+    embed = {
+        "title": f"🧸 {store}: {title}",
+        "url": url,
+        "color": 0xFF69B4,
+        "timestamp": datetime.utcnow().isoformat(),
+        "footer": {"text": "Squishy Monitor Bot"}
+    }
+
+    if image:
+        embed["image"] = {"url": image}
+
+    payload = {
+        "embeds": [embed]
+    }
+
     try:
-        requests.post(WEBHOOK_URL, json={"content": msg})
+        res = requests.post(WEBHOOK_URL, json=payload)
+        print("Discord status:", res.status_code)
     except Exception as e:
         print("Discord error:", e)
 
 # =========================
-# SQUISHMART (BEST SOURCE)
+# SQUISHMART (BEST QUALITY)
 # =========================
 def check_squishmart():
     url = "https://www.squishmart.com/products.json?limit=250"
@@ -42,8 +59,10 @@ def check_squishmart():
 
             seen.add(pid)
 
+            image = p.get("images", [{}])[0].get("src")
             link = f"https://www.squishmart.com/products/{p['handle']}"
-            send(f"🧸 Squishmart: {p['title']}\n{link}")
+
+            send_embed(p["title"], link, image, "Squishmart")
 
     except Exception as e:
         print("Squishmart error:", e)
@@ -58,9 +77,7 @@ def check_fivebelow():
         r = requests.get(url, timeout=10)
         data = r.json()
 
-        items = data.get("items", [])
-
-        for item in items:
+        for item in data.get("items", []):
             name = item.get("name", "").lower()
 
             if any(x in name for x in EXCLUDE):
@@ -73,34 +90,31 @@ def check_fivebelow():
 
             seen.add(pid)
 
-            link = item.get("url", "https://www.fivebelow.com")
-            send(f"🧸 Five Below: {item.get('name')}\n{link}")
+            image = item.get("image")
+            link = item.get("url")
+
+            send_embed(item.get("name", "Unknown"), link, image, "Five Below")
 
     except Exception as e:
         print("Five Below error:", e)
 
 # =========================
-# TARGET (SEARCH-BASED)
+# TARGET (BEST EFFORT)
 # =========================
 def check_target():
     url = "https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2"
 
-    params = {
-        "keyword": "squish",
-        "count": 20,
-        "channel": "web"
-    }
-
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params={"keyword": "squish", "count": 20, "channel": "web"}, timeout=10)
         data = r.json()
 
         products = data.get("data", {}).get("search", {}).get("products", [])
 
         for p in products:
-            title = p.get("item", {}).get("product_description", {}).get("title", "").lower()
+            item = p.get("item", {})
+            title = item.get("product_description", {}).get("title", "")
 
-            if any(x in title for x in EXCLUDE):
+            if any(x in title.lower() for x in EXCLUDE):
                 continue
 
             pid = f"tg_{p.get('tcin')}"
@@ -110,57 +124,40 @@ def check_target():
 
             seen.add(pid)
 
+            image = item.get("enrichment", {}).get("images", {}).get("primary_image_url")
             link = f"https://www.target.com/p/-/A-{p.get('tcin')}"
-            send(f"🧸 Target: {title}\n{link}")
+
+            send_embed(title, link, image, "Target")
 
     except Exception as e:
         print("Target error:", e)
 
 # =========================
-# WALMART (SEARCH)
+# WALMART (LIMITED BUT STABLE)
 # =========================
 def check_walmart():
-    url = "https://www.walmart.com/search?q=squish"
-
-    try:
-        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-
-        if "searchResult" not in r.text:
-            print("Walmart blocked or changed response")
-            return
-
-        # lightweight keyword fallback (not perfect but stable)
-        if "squishmallow" in r.text.lower():
-            pid = "wm_squish"
-
-            if pid not in seen:
-                seen.add(pid)
-                send("🧸 Walmart: Squish-related items detected\nhttps://www.walmart.com/search?q=squish")
-
-    except Exception as e:
-        print("Walmart error:", e)
-
-# =========================
-# AMAZON (SAFE MODE ONLY)
-# =========================
-def check_amazon():
-    # Amazon blocks scraping heavily — so we only do keyword alerting
     try:
         r = requests.get(
-            "https://www.amazon.com/s?k=squishmallow",
+            "https://www.walmart.com/search?q=squishmallow",
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10
         )
 
-        if "squishmallow" in r.text.lower():
-            pid = "am_squish"
+        if "squish" in r.text.lower():
+            pid = "wm_squish"
 
             if pid not in seen:
                 seen.add(pid)
-                send("🧸 Amazon: Squishmallow search activity detected\nhttps://www.amazon.com/s?k=squishmallow")
+
+                send_embed(
+                    "Squishmallow Search Results",
+                    "https://www.walmart.com/search?q=squishmallow",
+                    None,
+                    "Walmart"
+                )
 
     except Exception as e:
-        print("Amazon error:", e)
+        print("Walmart error:", e)
 
 # =========================
 # RUN ALL STORES
@@ -169,4 +166,3 @@ check_squishmart()
 check_fivebelow()
 check_target()
 check_walmart()
-check_amazon()
