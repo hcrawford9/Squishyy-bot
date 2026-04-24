@@ -61,7 +61,7 @@ def check():
 
         save()
     
-send("TEST ALERT - BOT WORKING", "https://squishmart.com")
+        send("TEST ALERT - BOT WORKING", "https://squishmart.com")
 
     except Exception as e:
         print("Error:", e)
