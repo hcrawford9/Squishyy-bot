@@ -5,9 +5,6 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -15,8 +12,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # 🔥 IMPORTANT (fixes push conflicts)
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,25 +21,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Ensure seen.json exists
-        run: |
-          if [ ! -f seen.json ]; then
-            echo "[]" > seen.json
-          fi
-
       - name: Run bot
         run: python bot.py
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-
-      # 🔥 FIXED GIT SYNC SECTION
-      - name: Commit and sync seen.json
-        run: |
-          git config user.name "bot"
-          git config user.email "bot@users.noreply.github.com"
-
-          git add seen.json || true
-          git commit -m "update seen" || echo "no changes"
-
-          git pull --rebase origin main || true
-          git push origin HEAD:main
