@@ -1,100 +1,172 @@
 import requests
 import os
-from datetime import datetime
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
 if not WEBHOOK_URL:
     raise ValueError("DISCORD_WEBHOOK is not set!")
 
-URL = "https://www.squishmart.com/products.json?limit=250"
-
 EXCLUDE = ["needoh", "dumpling"]
 
-# 🧠 memory (resets each GitHub run, but fine for daily summary logic)
-previous_stock = {}
+seen = set()
 
-daily_new = []
-daily_restocks = []
+# =========================
+# DISCORD
+# =========================
+def send(msg):
+    try:
+        requests.post(WEBHOOK_URL, json={"content": msg})
+    except Exception as e:
+        print("Discord error:", e)
 
-def send(message):
-    requests.post(WEBHOOK_URL, json={"content": message})
-
-def send_summary():
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    msg = f"📊 **Daily Squishy Summary ({today})**\n\n"
-
-    if not daily_new and not daily_restocks:
-        msg += "No new squishies or restocks today 💤"
-    else:
-        if daily_new:
-            msg += "🆕 **New Drops:**\n"
-            msg += "\n".join(daily_new[:10]) + "\n\n"
-
-        if daily_restocks:
-            msg += "🔄 **Restocks:**\n"
-            msg += "\n".join(daily_restocks[:10])
-
-    send(msg)
-
-def check():
-    global previous_stock, daily_new, daily_restocks
+# =========================
+# SQUISHMART (BEST SOURCE)
+# =========================
+def check_squishmart():
+    url = "https://www.squishmart.com/products.json?limit=250"
 
     try:
-        r = requests.get(
-            URL,
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
-
-        if r.status_code != 200:
-            print("Bad response:", r.status_code)
-            return
-
+        r = requests.get(url, timeout=10)
         data = r.json()
 
-        current_stock = {}
+        for p in data.get("products", []):
+            name = p["title"].lower()
 
-        for product in data.get("products", []):
-            name = product["title"].lower()
-
-            if any(word in name for word in EXCLUDE):
+            if any(x in name for x in EXCLUDE):
                 continue
 
-            pid = product["id"]
-            link = f"https://www.squishmart.com/products/{product['handle']}"
+            pid = f"sm_{p['id']}"
 
-            stock = sum(v.get("inventory_quantity", 0) for v in product.get("variants", []))
-
-            current_stock[pid] = stock
-
-            # 🆕 NEW PRODUCT
-            if pid not in previous_stock:
-                msg = f"🆕 {product['title']}\n{link}"
-                send(msg)
-                daily_new.append(product["title"])
+            if pid in seen:
                 continue
 
-            # 🔄 RESTOCK
-            if previous_stock[pid] == 0 and stock > 0:
-                msg = f"🔄 RESTOCK: {product['title']}\n{link}"
-                send(msg)
-                daily_restocks.append(product["title"])
+            seen.add(pid)
 
-        previous_stock = current_stock
+            link = f"https://www.squishmart.com/products/{p['handle']}"
+            send(f"🧸 Squishmart: {p['title']}\n{link}")
 
     except Exception as e:
-        print("Bot error:", e)
+        print("Squishmart error:", e)
 
-def maybe_send_daily_summary():
-    # ⚠️ runs only once per execution
-    # (GitHub runs every 30 min, so this behaves like daily summary spam unless we gate it)
-    now = datetime.now()
+# =========================
+# FIVE BELOW
+# =========================
+def check_fivebelow():
+    url = "https://www.fivebelow.com/api/search?q=squish"
 
-    # Example: send summary at 11:59 PM server time
-    if now.hour == 23 and now.minute < 30:
-        send_summary()
+    try:
+        r = requests.get(url, timeout=10)
+        data = r.json()
 
-check()
-maybe_send_daily_summary()
+        items = data.get("items", [])
+
+        for item in items:
+            name = item.get("name", "").lower()
+
+            if any(x in name for x in EXCLUDE):
+                continue
+
+            pid = f"fb_{item.get('id', name)}"
+
+            if pid in seen:
+                continue
+
+            seen.add(pid)
+
+            link = item.get("url", "https://www.fivebelow.com")
+            send(f"🧸 Five Below: {item.get('name')}\n{link}")
+
+    except Exception as e:
+        print("Five Below error:", e)
+
+# =========================
+# TARGET (SEARCH-BASED)
+# =========================
+def check_target():
+    url = "https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2"
+
+    params = {
+        "keyword": "squish",
+        "count": 20,
+        "channel": "web"
+    }
+
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        data = r.json()
+
+        products = data.get("data", {}).get("search", {}).get("products", [])
+
+        for p in products:
+            title = p.get("item", {}).get("product_description", {}).get("title", "").lower()
+
+            if any(x in title for x in EXCLUDE):
+                continue
+
+            pid = f"tg_{p.get('tcin')}"
+
+            if pid in seen:
+                continue
+
+            seen.add(pid)
+
+            link = f"https://www.target.com/p/-/A-{p.get('tcin')}"
+            send(f"🧸 Target: {title}\n{link}")
+
+    except Exception as e:
+        print("Target error:", e)
+
+# =========================
+# WALMART (SEARCH)
+# =========================
+def check_walmart():
+    url = "https://www.walmart.com/search?q=squish"
+
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+
+        if "searchResult" not in r.text:
+            print("Walmart blocked or changed response")
+            return
+
+        # lightweight keyword fallback (not perfect but stable)
+        if "squishmallow" in r.text.lower():
+            pid = "wm_squish"
+
+            if pid not in seen:
+                seen.add(pid)
+                send("🧸 Walmart: Squish-related items detected\nhttps://www.walmart.com/search?q=squish")
+
+    except Exception as e:
+        print("Walmart error:", e)
+
+# =========================
+# AMAZON (SAFE MODE ONLY)
+# =========================
+def check_amazon():
+    # Amazon blocks scraping heavily — so we only do keyword alerting
+    try:
+        r = requests.get(
+            "https://www.amazon.com/s?k=squishmallow",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10
+        )
+
+        if "squishmallow" in r.text.lower():
+            pid = "am_squish"
+
+            if pid not in seen:
+                seen.add(pid)
+                send("🧸 Amazon: Squishmallow search activity detected\nhttps://www.amazon.com/s?k=squishmallow")
+
+    except Exception as e:
+        print("Amazon error:", e)
+
+# =========================
+# RUN ALL STORES
+# =========================
+check_squishmart()
+check_fivebelow()
+check_target()
+check_walmart()
+check_amazon()
