@@ -71,5 +71,5 @@ def check():
 
 check()
 
-send("TEST ALERT - IF YOU SEE THIS, DISCORD WORKS", "https://example.com")
+
 
