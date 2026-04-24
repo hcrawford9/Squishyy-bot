@@ -1,10 +1,5 @@
 import requests
-import json
 import os
-
-# ======================
-# CONFIG
-# ======================
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
@@ -15,59 +10,23 @@ URL = "https://www.squishmart.com/products.json?limit=250"
 
 EXCLUDE = ["needoh", "dumpling"]
 
-# ======================
-# ENSURE FILE EXISTS
-# ======================
-
-if not os.path.exists("seen.json"):
-    with open("seen.json", "w") as f:
-        json.dump([], f)
-
-try:
-    with open("seen.json", "r") as f:
-        seen_ids = set(json.load(f))
-except:
-    seen_ids = set()
-
-# ======================
-# DISCORD SEND (DEBUG)
-# ======================
+# In-memory tracking (resets each run, but avoids Git entirely)
+seen_ids = set()
 
 def send(name, link):
-    print("➡️ Sending to Discord...")
-
     try:
         res = requests.post(
             WEBHOOK_URL,
-            json={"content": f"🧸 {name}\n{link}"}
+            json={"content": f"🧸 New Squishy Found!\n{name}\n{link}"}
         )
-
         print("Discord status:", res.status_code)
-
-        if res.status_code != 204:
-            print("⚠️ Discord response:", res.text)
-
     except Exception as e:
-        print("❌ Discord error:", e)
-
-# ======================
-# SAVE STATE
-# ======================
-
-def save():
-    with open("seen.json", "w") as f:
-        json.dump(list(seen_ids), f)
-
-# ======================
-# MAIN CHECK
-# ======================
+        print("Discord error:", e)
 
 def check():
     global seen_ids
 
     try:
-        print("🔍 Checking Squishmart...")
-
         r = requests.get(
             URL,
             timeout=10,
@@ -77,7 +36,6 @@ def check():
         print("Shopify status:", r.status_code)
 
         if r.status_code != 200:
-            print("Bad response:", r.text)
             return
 
         data = r.json()
@@ -89,24 +47,17 @@ def check():
             if any(word in name for word in EXCLUDE):
                 continue
 
-            if pid not in seen_ids:
-                seen_ids.add(pid)
+            # prevents spam within same run
+            if pid in seen_ids:
+                continue
 
-                link = f"https://www.squishmart.com/products/{product['handle']}"
+            seen_ids.add(pid)
 
-                print("🆕 New product found:", name)
+            link = f"https://www.squishmart.com/products/{product['handle']}"
 
-                send(product["title"], link)
-
-        save()
-
-        # ======================
-        # 🔥 TEST ALERT (REMOVE LATER)
-        # ======================
-        send("TEST ALERT - BOT WORKING", "https://squishmart.com")
+            send(product["title"], link)
 
     except Exception as e:
-        print("❌ Bot error:", e)
+        print("Bot error:", e)
 
-# RUN
 check()
