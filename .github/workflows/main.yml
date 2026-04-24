@@ -2,7 +2,7 @@ name: Squishy Bot
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,40 +13,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Get your repo files
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 🔥 IMPORTANT (fixes push conflicts)
 
-      # 2. Setup Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      # 3. Install dependencies
       - name: Install dependencies
         run: pip install requests
 
-      # 4. 🔥 ENSURE seen.json ALWAYS EXISTS (FIXES YOUR ERROR)
       - name: Ensure seen.json exists
         run: |
           if [ ! -f seen.json ]; then
             echo "[]" > seen.json
           fi
 
-      # 5. Run your bot (with Discord secret passed in)
       - name: Run bot
         run: python bot.py
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
 
-      # 6. Save updated seen.json safely
-      - name: Commit seen.json
+      # 🔥 FIXED GIT SYNC SECTION
+      - name: Commit and sync seen.json
         run: |
           git config user.name "bot"
           git config user.email "bot@users.noreply.github.com"
+
           git add seen.json || true
           git commit -m "update seen" || echo "no changes"
-          git push
 
-
+          git pull --rebase origin main || true
+          git push origin HEAD:main
