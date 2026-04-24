@@ -62,5 +62,5 @@ def check():
 
 check()
 
-send("TEST BOT WORKING", "https://example.com")
+send("TEST ALERT - IF YOU SEE THIS, DISCORD WORKS", "https://example.com")
 
