@@ -7,10 +7,12 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 if not WEBHOOK_URL:
     raise ValueError("DISCORD_WEBHOOK is not set!")
 
-URL = "https://squishmart.com/products.json?limit=250"
+# ✅ FIXED URL (important)
+URL = "https://www.squishmart.com/products.json?limit=250"
 
 EXCLUDE = ["needoh", "dumpling"]
 
+# Load previously seen products
 try:
     with open("seen.json", "r") as f:
         seen_ids = set(json.load(f))
@@ -29,27 +31,37 @@ def save():
 def check():
     global seen_ids
 
-    r = requests.get(URL, timeout=10)
+    try:
+        r = requests.get(
+            URL,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
 
-    if r.status_code != 200:
-        print("Bad response:", r.status_code)
-        return
+        if r.status_code != 200:
+            print("Bad response:", r.status_code)
+            return
 
-    data = r.json()
+        data = r.json()
 
-    for product in data["products"]:
-        name = product["title"].lower()
-        pid = product["id"]
+        for product in data.get("products", []):
+            name = product["title"].lower()
+            pid = product["id"]
 
-        if any(word in name for word in EXCLUDE):
-            continue
+            # filter unwanted items
+            if any(word in name for word in EXCLUDE):
+                continue
 
-        if pid not in seen_ids:
-            seen_ids.add(pid)
+            # new product found
+            if pid not in seen_ids:
+                seen_ids.add(pid)
 
-            link = f"https://squishmart.com/products/{product['handle']}"
-            send(product["title"], link)
+                link = f"https://www.squishmart.com/products/{product['handle']}"
+                send(product["title"], link)
 
-    save()
+        save()
+
+    except Exception as e:
+        print("Error:", e)
 
 check()
