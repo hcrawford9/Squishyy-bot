@@ -62,4 +62,3 @@ def check():
 
 check()
 
-send("TEST BOT WORKING", "https://example.com")
