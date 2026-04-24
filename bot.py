@@ -60,6 +60,8 @@ def check():
                 send(product["title"], link)
 
         save()
+    
+send("TEST ALERT - BOT WORKING", "https://squishmart.com")
 
     except Exception as e:
         print("Error:", e)
