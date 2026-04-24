@@ -8,7 +8,7 @@ if not WEBHOOK_URL:
     raise ValueError("DISCORD_WEBHOOK is not set!")
 
 # ✅ FIXED URL (important)
-URL = "https://www.squishmart.com/products.json?limit=250"
+
 
 EXCLUDE = ["needoh", "dumpling"]
 
