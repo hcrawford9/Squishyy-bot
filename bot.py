@@ -61,3 +61,5 @@ def check():
         print("Bot error:", e)
 
 check()
+
+send("TEST BOT WORKING", "https://example.com")
