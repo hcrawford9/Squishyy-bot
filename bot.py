@@ -1,5 +1,6 @@
 import requests
 import os
+import time
 from datetime import datetime
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
@@ -7,37 +8,75 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 if not WEBHOOK_URL:
     raise ValueError("DISCORD_WEBHOOK is not set!")
 
+# =========================
+# CONFIG
+# =========================
+KEYWORDS = ["squish", "squishy", "squishmallow", "plush", "soft"]
 EXCLUDE = ["needoh", "dumpling"]
 
-seen = set()
+seen = {}
+COOLDOWN = 60 * 60 * 4  # 4 hours
 
 # =========================
-# DISCORD EMBED (PRO)
+# DISCORD
 # =========================
-def send_embed(title, url, image=None, store="Store"):
+def send(title, url, image=None, store="Store", tag="NEW"):
+    color_map = {
+        "NEW": 0x00FF99,
+        "RESTOCK": 0xFFA500,
+        "HOT": 0xFF4D4D
+    }
+
     embed = {
         "title": f"🧸 {store}: {title}",
         "url": url,
-        "color": 0xFF69B4,
+        "color": color_map.get(tag, 0x00FF99),
         "timestamp": datetime.utcnow().isoformat(),
-        "footer": {"text": "Squishy Monitor Bot"}
+        "footer": {"text": f"Insane Mode • {tag}"}
     }
 
     if image:
         embed["image"] = {"url": image}
 
-    payload = {
-        "embeds": [embed]
-    }
-
     try:
-        res = requests.post(WEBHOOK_URL, json=payload)
-        print("Discord status:", res.status_code)
+        requests.post(WEBHOOK_URL, json={"embeds": [embed]})
     except Exception as e:
         print("Discord error:", e)
 
 # =========================
-# SQUISHMART (BEST QUALITY)
+# SMART FILTER ENGINE
+# =========================
+def score_item(name):
+    name = name.lower()
+
+    score = 0
+
+    if any(x in name for x in KEYWORDS):
+        score += 2
+
+    if any(x in name for x in EXCLUDE):
+        score -= 10
+
+    return score
+
+# =========================
+# COOLDOWN CHECK
+# =========================
+def allowed(pid):
+    now = time.time()
+
+    if pid not in seen:
+        seen[pid] = now
+        return True
+
+    if now - seen[pid] > COOLDOWN:
+        seen[pid] = now
+        return True
+
+    return False
+
+# =========================
+# SQUISHMART (BEST DATA)
 # =========================
 def check_squishmart():
     url = "https://www.squishmart.com/products.json?limit=250"
@@ -47,22 +86,28 @@ def check_squishmart():
         data = r.json()
 
         for p in data.get("products", []):
-            name = p["title"].lower()
-
-            if any(x in name for x in EXCLUDE):
-                continue
+            title = p["title"]
+            name = title.lower()
 
             pid = f"sm_{p['id']}"
 
-            if pid in seen:
+            if not allowed(pid):
                 continue
 
-            seen.add(pid)
+            score = score_item(name)
 
-            image = p.get("images", [{}])[0].get("src")
+            if score < 0:
+                continue
+
+            image = None
+            if p.get("images"):
+                image = p["images"][0].get("src")
+
             link = f"https://www.squishmart.com/products/{p['handle']}"
 
-            send_embed(p["title"], link, image, "Squishmart")
+            tag = "HOT" if score >= 3 else "NEW"
+
+            send(title, link, image, "Squishmart", tag)
 
     except Exception as e:
         print("Squishmart error:", e)
@@ -78,34 +123,42 @@ def check_fivebelow():
         data = r.json()
 
         for item in data.get("items", []):
-            name = item.get("name", "").lower()
-
-            if any(x in name for x in EXCLUDE):
-                continue
+            name = item.get("name", "")
 
             pid = f"fb_{item.get('id', name)}"
 
-            if pid in seen:
+            if not allowed(pid):
                 continue
 
-            seen.add(pid)
+            score = score_item(name)
 
-            image = item.get("image")
-            link = item.get("url")
+            if score < 0:
+                continue
 
-            send_embed(item.get("name", "Unknown"), link, image, "Five Below")
+            send(
+                name,
+                item.get("url", "https://www.fivebelow.com"),
+                item.get("image"),
+                "Five Below",
+                "NEW"
+            )
 
     except Exception as e:
         print("Five Below error:", e)
 
 # =========================
-# TARGET (BEST EFFORT)
+# TARGET
 # =========================
 def check_target():
     url = "https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2"
 
     try:
-        r = requests.get(url, params={"keyword": "squish", "count": 20, "channel": "web"}, timeout=10)
+        r = requests.get(url, params={
+            "keyword": "squish",
+            "count": 20,
+            "channel": "web"
+        }, timeout=10)
+
         data = r.json()
 
         products = data.get("data", {}).get("search", {}).get("products", [])
@@ -114,26 +167,26 @@ def check_target():
             item = p.get("item", {})
             title = item.get("product_description", {}).get("title", "")
 
-            if any(x in title.lower() for x in EXCLUDE):
-                continue
-
             pid = f"tg_{p.get('tcin')}"
 
-            if pid in seen:
+            if not allowed(pid):
                 continue
 
-            seen.add(pid)
+            score = score_item(title)
+
+            if score < 0:
+                continue
 
             image = item.get("enrichment", {}).get("images", {}).get("primary_image_url")
             link = f"https://www.target.com/p/-/A-{p.get('tcin')}"
 
-            send_embed(title, link, image, "Target")
+            send(title, link, image, "Target", "NEW")
 
     except Exception as e:
         print("Target error:", e)
 
 # =========================
-# WALMART (LIMITED BUT STABLE)
+# WALMART (SIGNAL MODE)
 # =========================
 def check_walmart():
     try:
@@ -144,23 +197,22 @@ def check_walmart():
         )
 
         if "squish" in r.text.lower():
-            pid = "wm_squish"
+            pid = "wm_signal"
 
-            if pid not in seen:
-                seen.add(pid)
-
-                send_embed(
-                    "Squishmallow Search Results",
+            if allowed(pid):
+                send(
+                    "Walmart Squishmallow Search Signal",
                     "https://www.walmart.com/search?q=squishmallow",
                     None,
-                    "Walmart"
+                    "Walmart",
+                    "HOT"
                 )
 
     except Exception as e:
         print("Walmart error:", e)
 
 # =========================
-# RUN ALL STORES
+# RUN ENGINE
 # =========================
 check_squishmart()
 check_fivebelow()
